@@ -7,13 +7,19 @@ from supabase import create_client, Client
 import plotly.express as px
 import plotly.graph_objects as go
 
-# --- Étape 2 : Initialiser la connexion à Supabase (ne change pas) ---
+# --- Configuration de la page (DOIT être en premier) ---
+st.set_page_config(page_title="Mon Spotistory", layout="wide", initial_sidebar_state="collapsed")
+
+# --- Étape 2 : Initialiser la connexion à Supabase ---
 try:
     supabase_url = st.secrets["SUPABASE_URL"]
     supabase_key = st.secrets["SUPABASE_KEY"]
     supabase_client: Client = create_client(supabase_url, supabase_key)
-except KeyError:
-    st.error("ERREUR : Les secrets Supabase ne sont pas configurés.")
+except KeyError as e:
+    st.error(f"ERREUR : Les secrets Supabase ne sont pas configurés. Clé manquante : {e}")
+    st.stop()
+except Exception as e:
+    st.error(f"ERREUR : Impossible de se connecter à Supabase. Détails : {str(e)}")
     st.stop()
 
 # --- Étape 3 : Définir la fonction de chargement (ne change pas) ---
@@ -26,7 +32,6 @@ def load_spotify_data(_db_client: Client):
 
 # --- Étape 4 : Construire l'interface de l'application ---
 
-st.set_page_config(page_title="Mon Spotistory", layout="wide", initial_sidebar_state="collapsed")
 st.title("🎵 Mon Historique Spotify")
 
 # --- On charge les données (ne change pas) ---
