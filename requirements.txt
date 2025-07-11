@@ -2,4 +2,4 @@ pandas
 streamlit
 altair
 plotly==5.18.0
-supabase==2.3.4
+supabase==2.0.3
