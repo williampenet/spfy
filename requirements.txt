@@ -1,5 +1,5 @@
-echo "pandas
+pandas
 streamlit
 altair
 plotly==5.18.0
-supabase==2.3.4" > requirements.txt
+supabase==2.3.4
