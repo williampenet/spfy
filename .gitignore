@@ -1,8 +1,35 @@
 .streamlit/secrets.toml
+secrets.toml
+
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# macOS
+.DS_Store
+
+# Data files
 *.csv
 *.xlsx
+*.json
+data/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+__pycache__/
 venv/
-env/
-.DS_Store
+enriched_files/
+enriched_files/
