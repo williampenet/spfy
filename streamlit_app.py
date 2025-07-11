@@ -82,9 +82,8 @@ else:
 
     # --- Graphique des écoutes dans le temps ---
     st.header("📈 Évolution de vos écoutes")
-    # Assurez-vous que le nom de la colonne 'endTime' est correct et que c'est une date
-    # On convertit la colonne de date au bon format
-    df_spotify['played_date'] = pd.to_datetime(df_spotify['played_date'])
+    # On convertit la colonne de date au bon format avec un format explicite
+    df_spotify['played_date'] = pd.to_datetime(df_spotify['played_date'], format='%Y-%m-%d', errors='coerce')
     # On compte les écoutes par jour
     ecoutes_par_mois = df_spotify.groupby(df_spotify['played_date'].dt.to_period('M')).size().reset_index()
     ecoutes_par_mois.columns = ['Mois', 'Nombre d\'écoutes']
@@ -138,34 +137,76 @@ else:
     # --- Graphique des heures d'écoute ---
     st.header("🕐 Répartition par heure de la journée")
     
-    # Convertir played_time en heure
-    df_spotify['hour'] = pd.to_datetime(df_spotify['played_time']).dt.hour
+    # Extraire l'heure et le jour de la semaine avec formats explicites
+    df_spotify['hour'] = pd.to_datetime(df_spotify['played_time'], format='%H:%M:%S', errors='coerce').dt.hour
+    df_spotify['weekday'] = pd.to_datetime(df_spotify['played_date'], format='%Y-%m-%d', errors='coerce').dt.dayofweek
     
-    # Compter les écoutes par heure
-    ecoutes_par_heure = df_spotify['hour'].value_counts().sort_index().reset_index()
-    ecoutes_par_heure.columns = ['Heure', 'Nombre d\'écoutes']
+    # Mapper les numéros de jour aux noms en anglais
+    day_names = {0: 'Monday', 1: 'Tuesday', 2: 'Wednesday', 3: 'Thursday', 
+                 4: 'Friday', 5: 'Saturday', 6: 'Sunday'}
+    df_spotify['weekday_name'] = df_spotify['weekday'].map(day_names)
     
-    # Créer un graphique polaire avec Plotly
-    fig_heure = go.Figure()
+    # Calculer la moyenne des écoutes par jour de semaine et heure
+    heatmap_data = df_spotify.groupby(['weekday_name', 'weekday', 'hour']).size().reset_index(name='count')
     
-    fig_heure.add_trace(go.Barpolar(
-        r=ecoutes_par_heure['Nombre d\'écoutes'],
-        theta=ecoutes_par_heure['Heure'] * 15,  # Convertir en degrés (360/24 = 15)
-        width=15,
-        marker_color=ecoutes_par_heure['Nombre d\'écoutes'],
-        marker_colorscale='Plasma',
-        text=ecoutes_par_heure['Heure'].astype(str) + 'h',
-        hovertemplate='%{text}<br>%{r} écoutes<extra></extra>'
-    ))
+    # Créer un DataFrame complet avec toutes les heures (0-23) et tous les jours
+    all_hours = range(24)
+    all_days = [(name, num) for num, name in day_names.items()]
     
+    # Créer toutes les combinaisons possibles
+    complete_index = pd.MultiIndex.from_product([
+        [d[0] for d in all_days],  # weekday_name
+        [d[1] for d in all_days],  # weekday number
+        all_hours  # hour
+    ], names=['weekday_name', 'weekday', 'hour'])
+    
+    # Créer un DataFrame avec toutes les combinaisons
+    complete_df = pd.DataFrame(index=complete_index).reset_index()
+    
+    # Merger avec les données réelles
+    heatmap_data = complete_df.merge(
+        heatmap_data, 
+        on=['weekday_name', 'weekday', 'hour'], 
+        how='left'
+    ).fillna({'count': 0})
+    
+    # Calculer la moyenne par jour/heure (nombre total d'écoutes / nombre de semaines)
+    n_weeks = df_spotify['played_date'].nunique() / 7  # Approximation du nombre de semaines
+    heatmap_data['avg_count'] = heatmap_data['count'] / n_weeks
+    
+    # Pivoter pour avoir les jours en colonnes et les heures en lignes
+    heatmap_pivot = heatmap_data.pivot_table(
+        index='hour',
+        columns='weekday',
+        values='avg_count',
+        fill_value=0
+    )
+    
+    # Réordonner les colonnes pour avoir lundi en premier
+    heatmap_pivot = heatmap_pivot.reindex(columns=range(7))
+    
+    # Créer la heatmap avec Plotly
+    fig_heure = px.imshow(
+        heatmap_pivot.values,
+        labels=dict(x="Day", y="Hour", color="Avg plays"),
+        x=['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+        y=[f"{h:02d}h" for h in range(24)],  # Toutes les heures de 00h à 23h
+        color_continuous_scale='Blues',
+        origin='lower',  # Pour avoir 0h en bas
+        title="Weekly listening patterns: average plays by day and hour",
+        aspect='auto'  # Ajuste automatiquement l'aspect ratio
+    )
+    
+    # Personnaliser l'apparence
     fig_heure.update_layout(
-        template=None,
-        polar=dict(
-            radialaxis=dict(visible=True, range=[0, ecoutes_par_heure['Nombre d\'écoutes'].max()]),
-            angularaxis=dict(visible=True, direction="clockwise", rotation=90)
-        ),
-        showlegend=False,
-        title="Vos habitudes d'écoute au cours de la journée"
+        height=800,  # Plus de hauteur
+        xaxis_title="Day of the week",
+        yaxis_title="Hour of the day",
+        yaxis=dict(
+            tickmode='array',
+            tickvals=list(range(24)),
+            ticktext=[f"{h:02d}h" for h in range(24)]
+        )
     )
     
     st.plotly_chart(fig_heure, use_container_width=True)
