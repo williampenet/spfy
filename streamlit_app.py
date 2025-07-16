@@ -3,12 +3,20 @@
 # --- Step 1: Import necessary libraries ---
 import streamlit as st
 import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
 from supabase import create_client, Client
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # --- Page configuration (MUST be first) ---
 st.set_page_config(page_title="My Spotistory", layout="centered", initial_sidebar_state="collapsed")
+
+# --- Helper function for number formatting ---
+def format_number(num):
+    """Format a number with spaces as thousand separators"""
+    return f"{num:,}".replace(",", " ")
 
 # --- Step 2: Initialize Supabase connection ---
 try:
@@ -22,72 +30,16 @@ except Exception as e:
     st.error(f"ERROR: Unable to connect to Supabase. Details: {str(e)}")
     st.stop()
 
-
 # --- Step 3: Define data loading function ---
-@st.cache_data(ttl=3600)  # Cache pour 1 heure
+@st.cache_data
 def load_spotify_data(_db_client: Client):
-    """Load all data from 'tracks' table using timestamp-based pagination."""
-    all_data = []
-    batch_size = 1000
-    last_timestamp = None
-    total_loaded = 0
-    
-    # Créer un placeholder pour la progression
-    progress_text = st.empty()
-    progress_bar = st.progress(0)
-    
-    try:
-        # D'abord, obtenir le nombre total de lignes
-        # On fait une requête avec limit 1 pour obtenir le count
-        count_response = _db_client.table('tracks').select('id', count='exact').limit(1).execute()
-        total_rows = count_response.count
-        
-        progress_text.text(f"Chargement de {total_rows:,} lignes...")
-        
-        while True:
-            # Construire la requête avec pagination par timestamp
-            query = _db_client.table('tracks').select('*').order('timestamp', desc=False).limit(batch_size)
-            
-            if last_timestamp:
-                query = query.gt('timestamp', last_timestamp)
-            
-            response = query.execute()
-            
-            if not response.data:
-                break
-            
-            all_data.extend(response.data)
-            total_loaded += len(response.data)
-            
-            # Mettre à jour le timestamp pour la prochaine page
-            last_timestamp = response.data[-1]['timestamp']
-            
-            # Mettre à jour la progression
-            progress = min(total_loaded / total_rows, 1.0) if total_rows else 0
-            progress_bar.progress(progress)
-            progress_text.text(f"Chargé {total_loaded:,} / {total_rows:,} lignes ({progress*100:.1f}%)")
-            
-            # Sortir si on a moins de lignes que demandé (fin des données)
-            if len(response.data) < batch_size:
-                break
-        
-        # Nettoyer l'affichage de progression
-        progress_text.empty()
-        progress_bar.empty()
-        
-        st.success(f"✅ {total_loaded:,} lignes chargées avec succès!")
-        
-    except Exception as e:
-        st.error(f"Erreur lors du chargement: {str(e)}")
-        progress_text.empty()
-        progress_bar.empty()
-        raise
-    
-    return pd.DataFrame(all_data)
+    """Load data from 'tracks' table in Supabase."""
+    response = _db_client.table('tracks').select('*').execute()
+    return pd.DataFrame(response.data)
 
 # --- Step 4: Build the application interface ---
 
-st.title("🎵 My Spotify Personal Insights")
+st.title("🎵 William's Spotify Personal Insights")
 
 # --- Load data ---
 df_spotify = load_spotify_data(supabase_client)
@@ -98,7 +50,7 @@ if df_spotify.empty:
 else:
     # --- START OF ANALYSIS AND VISUALIZATION ---
 
-    st.markdown("### Explore your music listening habits with interactive visualizations")
+    st.markdown("### Explore William's music listening habits with some data visualizations")
     st.markdown("---")
 
     # --- Key Performance Indicators (KPIs) ---
@@ -109,13 +61,13 @@ else:
     total_hours = df_spotify['ms_played'].sum() / (1000 * 60 * 60)
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("🎵 Tracks Listened", f"{total_tracks:,}")
-    col2.metric("🎤 Unique Artists", f"{total_artists:,}")
-    col3.metric("💿 Unique Albums", f"{total_albums:,}")
-    col4.metric("⏰ Total Hours", f"{total_hours:.0f}h")
+    col1.metric("🎵 Tracks Listened", format_number(total_tracks))
+    col2.metric("🎤 Unique Artists", format_number(total_artists))
+    col3.metric("💿 Unique Albums", format_number(total_albums))
+    col4.metric("⏰ Total Hours", f"{total_hours:.0f} h")
 
     # --- Top Artists and Tracks by Year ---
-    st.header("🏆 My Tops")
+    st.header("🏆 Tops")
 
     # Prepare data with year
     df_with_year = df_spotify.copy()
@@ -127,6 +79,7 @@ else:
 
     # Define colors by year
     year_colors = {
+        2010: '#fff2b2',  # Jaune ambré doux
         2011: '#fcefa1', # Soleil pâle
         2012: '#fcd584', # Abricot doux
         2013: '#fab07b', # Pêche dorée
@@ -142,11 +95,10 @@ else:
         2023: '#5669b3', # Lavande bleutée
         2024: '#6c87c8', # Bleu pervenche
         2025: '#85a7d8', # Azur givré
-
     }
 
     # --- Top 10 Artists ---
-    st.subheader("🎤 Most Listened to Artists")
+    st.subheader("🎤 Most Listened to artists")
     
     # Calculate top 10 artists
     top_artists = df_valid_year['master_metadata_album_artist_name'].value_counts().head(10).index
@@ -185,7 +137,7 @@ else:
     
     fig_artists.update_layout(
         barmode='stack',
-        title='Total Plays by Artist and Year',
+        title='Total plays by artist and year',
         xaxis_title='Plays',
         yaxis_title='',
         height=500,
@@ -214,9 +166,13 @@ else:
         ['master_metadata_track_name', 'master_metadata_album_artist_name', 'year']
     ).size().reset_index(name='count')
     
-    # For display, combine track and artist
-    track_year_counts['display_name'] = track_year_counts['master_metadata_track_name'].str[:30] + '...' + \
-                                        ' (' + track_year_counts['master_metadata_album_artist_name'].str[:15] + ')'
+    # For display, combine track and artist (without automatic "...")
+    track_year_counts['display_name'] = track_year_counts.apply(
+        lambda row: f"{row['master_metadata_track_name'][:40]} ({row['master_metadata_album_artist_name'][:20]})"
+        if len(row['master_metadata_track_name']) > 40 
+        else f"{row['master_metadata_track_name']} ({row['master_metadata_album_artist_name'][:20]})",
+        axis=1
+    )
     
     # Pivot to have years as columns
     track_pivot = track_year_counts.pivot_table(
@@ -248,7 +204,7 @@ else:
     
     fig_tracks.update_layout(
         barmode='stack',
-        title='Total Plays by Track and Year',
+        title='Total plays by track and year',
         xaxis_title='Plays',
         yaxis_title='',
         height=500,
@@ -266,18 +222,10 @@ else:
     
     st.plotly_chart(fig_tracks, use_container_width=True)
 
-    # Note on available years
-    with st.expander("ℹ️ Years Available in Your Data"):
-        years_str = ", ".join([str(int(y)) for y in sorted(df_valid_year['year'].unique())])
-        st.write(f"Your data covers the years: **{years_str}**")
-        
-        # Display number of plays per year
-        yearly_counts = df_valid_year['year'].value_counts().sort_index()
-        for year, count in yearly_counts.items():
-            st.write(f"- **{int(year)}**: {count:,} plays")
+    st.markdown("---")
 
     # --- Listening evolution over time ---
-    st.header("📈 Listening Evolution")
+    st.header("📈 Listening evolution")
 
     # Prepare date data
     df_copy = df_spotify.copy()
@@ -297,21 +245,51 @@ else:
         listens_per_month.columns = ['Month', 'Number of Plays']
         listens_per_month['Month'] = listens_per_month['Month'].astype(str)
         
-        # Create chart
-        fig_evolution = px.bar(listens_per_month, 
-                              x='Month', 
-                              y='Number of Plays',
-                              title='Number of Plays per Month',
-                              color='Number of Plays',
-                              color_continuous_scale='Sunset')
-        fig_evolution.update_layout(showlegend=False,
-                                   coloraxis_showscale=False)
+        # Identify gaps (more than 3 months without data)
+        listens_per_month['Month_dt'] = pd.to_datetime(listens_per_month['Month'])
+        listens_per_month = listens_per_month.sort_values('Month_dt')
+        listens_per_month['Gap'] = listens_per_month['Month_dt'].diff() > pd.Timedelta(days=90)
+        
+        # Create chart with gap management
+        fig_evolution = go.Figure()
+        
+        # Split data by continuous periods
+        current_group = []
+        groups = []
+        
+        for idx, row in listens_per_month.iterrows():
+            if row['Gap'] and current_group:
+                groups.append(pd.DataFrame(current_group))
+                current_group = []
+            current_group.append(row)
+        
+        if current_group:
+            groups.append(pd.DataFrame(current_group))
+        
+        # Plot each group separately
+        for i, group in enumerate(groups):
+            fig_evolution.add_trace(go.Bar(
+                x=group['Month'],
+                y=group['Number of Plays'],
+                name=f'Period {i+1}',
+                marker_color='rgb(68, 138, 255)',
+                showlegend=False
+            ))
+        
+        fig_evolution.update_layout(
+            title='Number of Plays per Month',
+            xaxis_title='Month',
+            yaxis_title='Number of Plays',
+            bargap=0.2,
+            height=400
+        )
+        
         st.plotly_chart(fig_evolution, use_container_width=True)
     else:
         st.error("No data with valid dates found.")
 
-    # --- Track duration distribution ---
-    st.header("⏱️ Track Duration Distribution")
+    # --- Track duration distribution (in percentage) ---
+    st.header("⏱️ Track duration distribution")
     
     # Convert ms_played to minutes
     df_spotify['duration_minutes'] = df_spotify['ms_played'] / 60000
@@ -324,29 +302,32 @@ else:
                                               labels=labels, 
                                               right=False)
     
-    # Count tracks per category
-    duration_counts = df_spotify['duration_category'].value_counts().sort_index().reset_index()
-    duration_counts.columns = ['Duration Range', 'Number of Tracks']
+    # Calculate percentages
+    duration_counts = df_spotify['duration_category'].value_counts(normalize=True).sort_index() * 100
+    duration_df = pd.DataFrame({
+        'Duration Range': duration_counts.index,
+        'Percentage': duration_counts.values
+    })
     
     # Create chart
-    fig_duration = px.bar(duration_counts, 
+    fig_duration = px.bar(duration_df, 
                          x='Duration Range', 
-                         y='Number of Tracks',
-                         title='Distribution of Played Tracks by Duration',
-                         color='Number of Tracks',
+                         y='Percentage',
+                         title='Distribution of Played Tracks by Duration (%)',
+                         color='Percentage',
                          color_continuous_scale='Sunset',
-                         text='Number of Tracks')
+                         text=duration_df['Percentage'].round(1))
     
     # Customize appearance
-    fig_duration.update_traces(texttemplate='%{text}', textposition='outside')
+    fig_duration.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
     fig_duration.update_layout(showlegend=False,
-                              yaxis_title='Number of Tracks',
+                              yaxis_title='Percentage of Tracks',
                               xaxis_title='Duration Ranges')
     
     st.plotly_chart(fig_duration, use_container_width=True)
 
     # --- Listening hours heatmap ---
-    st.header("🕐 Listening Patterns by Hour")
+    st.header("🕐 Listening patterns by hour")
 
     # Convert timestamp to datetime
     df_spotify['timestamp_dt'] = pd.to_datetime(df_spotify['timestamp'], errors='coerce')
@@ -368,27 +349,6 @@ else:
     days_count = df_valid_dates.groupby(['weekday', 'date_only']).size().reset_index()
     occurrences_per_day = days_count.groupby('weekday').size().reset_index(name='occurrences')
     occurrences_dict = dict(zip(occurrences_per_day['weekday'], occurrences_per_day['occurrences']))
-
-    # Display data coverage statistics
-    st.subheader("📊 Data Coverage")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if len(df_valid_dates) > 0:
-            st.metric("Period Covered", 
-                      f"{df_valid_dates['timestamp_dt'].min().strftime('%Y-%m-%d')} to {df_valid_dates['timestamp_dt'].max().strftime('%Y-%m-%d')}")
-        else:
-            st.metric("Period Covered", "No valid dates")
-    with col2:
-        st.metric("Days with Data", 
-                  f"{df_valid_dates['date_only'].nunique()} days")
-    with col3:
-        # Display least represented day
-        if occurrences_dict:
-            min_day = min(occurrences_dict.items(), key=lambda x: x[1])
-            st.metric("Least Covered Day", 
-                      f"{day_names[min_day[0]]}: {min_day[1]} occurrences")
-        else:
-            st.metric("Least Covered Day", "N/A")
 
     # Calculate plays by day/hour
     if len(df_valid_dates) == 0:
@@ -462,8 +422,8 @@ else:
 
         fig_hour.update_layout(
             height=800,
-            xaxis_title="Day of the Week (number shows data coverage)",
-            yaxis_title="Hour of the Day",
+            xaxis_title="Day of the week (number shows data coverage)",
+            yaxis_title="Hour of the day",
             yaxis=dict(
                 tickmode='array',
                 tickvals=list(range(24)),
@@ -475,7 +435,7 @@ else:
         st.plotly_chart(fig_hour, use_container_width=True)
 
     # --- Musical mood evolution ---
-    st.header("😊 Musical Mood Evolution")
+    st.header("😊 Musical mood evolution")
 
     # Prepare data with timestamp
     df_valence = df_spotify.copy()
@@ -547,7 +507,7 @@ else:
         
         # Customize layout
         fig_valence.update_layout(
-            title="Musical Valence Evolution (0 = sad, 1 = happy)",
+            title="Musical valence evolution (0 = sad, 1 = happy)",
             xaxis_title="Month",
             yaxis_title="Average Valence",
             yaxis=dict(range=[0, 1]),
@@ -556,7 +516,7 @@ else:
             height=500
         )
         
-        # Rotate x labels if necessary
+        # Rotate x labels if necessary (fixed method)
         if len(valence_monthly) > 20:
             fig_valence.update_layout(xaxis=dict(tickangle=-45))
         
@@ -583,19 +543,236 @@ else:
                       saddest_month['year_month_str'],
                       f"{saddest_month['valence_mean']:.3f}")
         
-        with col4:
-            # Recent trend (last 3 months vs previous 3)
-            if len(valence_monthly) >= 6:
-                recent_avg = valence_monthly.tail(3)['valence_mean'].mean()
-                previous_avg = valence_monthly.iloc[-6:-3]['valence_mean'].mean()
-                trend = recent_avg - previous_avg
-                st.metric("Recent Trend", 
-                          "↑ Happier" if trend > 0 else "↓ More Melancholic",
-                          f"{abs(trend):.3f}")
-            else:
-                st.metric("Recent Trend", "Not Enough Data", "—")
         
-        
+        # Explanation
+        with st.expander("ℹ️ What is Valence?"):
+            st.write("""
+            **Valence** is a Spotify measure from 0 to 1 describing the musical positivity of a track:
+            
+            - **0.0 - 0.3**: Sad, melancholic, depressed, or angry tracks
+            - **0.3 - 0.7**: Neutral or ambivalent tracks
+            - **0.7 - 1.0**: Happy, euphoric, cheerful tracks
+            
+            It's calculated by analyzing tempo, mode (major/minor), timbre, and other acoustic features.
+            """)
             
     else:
         st.warning("⚠️ Not enough data with valence to create this chart.")
+
+    # --- Discovery Score - Musical Exploration Index ---
+    st.header("🧭 Discovery Score - William's musical exploration index")
+
+    # Prepare data
+    df_discovery = df_spotify.copy()
+    df_discovery['timestamp_dt'] = pd.to_datetime(df_discovery['timestamp'], errors='coerce')
+    df_discovery = df_discovery[df_discovery['timestamp_dt'].notna()].copy()
+
+    if len(df_discovery) > 0:
+        # Add time periods
+        df_discovery['date'] = df_discovery['timestamp_dt'].dt.date
+        df_discovery['week'] = df_discovery['timestamp_dt'].dt.to_period('W')
+        df_discovery['month'] = df_discovery['timestamp_dt'].dt.to_period('M')
+        df_discovery['year_month'] = df_discovery['timestamp_dt'].dt.strftime('%Y-%m')
+        
+        # Calculate metrics by month
+        monthly_stats = []
+        
+        for month in df_discovery['month'].unique():
+            month_data = df_discovery[df_discovery['month'] == month]
+            
+            # Basic metrics
+            total_plays = len(month_data)
+            unique_artists = month_data['master_metadata_album_artist_name'].nunique()
+            unique_tracks = month_data['master_metadata_track_name'].nunique()
+            unique_albums = month_data['master_metadata_album_album_name'].nunique()
+            
+            # Identify new discoveries
+            previous_months = df_discovery[df_discovery['month'] < month]
+            previous_artists = set(previous_months['master_metadata_album_artist_name'].unique())
+            previous_tracks = set(previous_months['master_metadata_track_name'].unique())
+            
+            current_artists = set(month_data['master_metadata_album_artist_name'].unique())
+            current_tracks = set(month_data['master_metadata_track_name'].unique())
+            
+            new_artists = len(current_artists - previous_artists)
+            new_tracks = len(current_tracks - previous_tracks)
+            
+            # Calculate repetition rate (obsessive loops)
+            track_play_counts = month_data['master_metadata_track_name'].value_counts()
+            obsessive_loops = len(track_play_counts[track_play_counts > 20])  # Tracks played >20 times
+            max_repeat = track_play_counts.max() if len(track_play_counts) > 0 else 0
+            
+            # Genre diversity (approximated by artist diversity)
+            artist_distribution = month_data['master_metadata_album_artist_name'].value_counts()
+            # Shannon entropy to measure diversity
+            artist_probs = artist_distribution / artist_distribution.sum()
+            diversity_score = -np.sum(artist_probs * np.log(artist_probs + 1e-10))
+            
+            # Calculate Discovery Score
+            discovery_score = (
+                (new_artists * 3 + new_tracks * 1) / (total_plays + 1) * 100 * 2 +
+                diversity_score * 5 -
+                (obsessive_loops * 2)
+            )
+            discovery_score = max(0, min(100, discovery_score))
+            
+            monthly_stats.append({
+                'month': month,
+                'month_str': str(month),
+                'total_plays': total_plays,
+                'unique_artists': unique_artists,
+                'unique_tracks': unique_tracks,
+                'new_artists': new_artists,
+                'new_tracks': new_tracks,
+                'discovery_score': discovery_score,
+                'obsessive_loops': obsessive_loops,
+                'max_repeat': max_repeat,
+                'diversity_score': diversity_score
+            })
+        
+        df_monthly_stats = pd.DataFrame(monthly_stats).sort_values('month')
+        
+        # 1. MAIN GAUGE - Current Discovery Score
+        current_month_stats = df_monthly_stats.iloc[-1]
+        current_score = current_month_stats['discovery_score']
+        
+        # Determine category
+        if current_score < 30:
+            category = "Creature of Habit 🔄"
+            color = "red"
+        elif current_score < 60:
+            category = "Balanced Explorer ⚖️"
+            color = "yellow"
+        else:
+            category = "Musical Adventurer 🧭"
+            color = "green"
+        
+        col1, col2 = st.columns([1, 2])
+        
+        with col1:
+            # Circular gauge
+            fig_gauge = go.Figure(go.Indicator(
+                mode="gauge+number+delta",
+                value=current_score,
+                title={'text': f"Current Score<br><span style='font-size:0.8em'>{category}</span>"},
+                delta={'reference': df_monthly_stats.iloc[-2]['discovery_score'] if len(df_monthly_stats) > 1 else current_score},
+                gauge={
+                    'axis': {'range': [None, 100]},
+                    'bar': {'color': "darkblue"},
+                    'steps': [
+                        {'range': [0, 30], 'color': "lightgray"},
+                        {'range': [30, 60], 'color': "gray"},
+                        {'range': [60, 100], 'color': "lightgreen"}
+                    ],
+                    'threshold': {
+                        'line': {'color': "red", 'width': 4},
+                        'thickness': 0.75,
+                        'value': 90
+                    }
+                }
+            ))
+            
+            fig_gauge.update_layout(height=300)
+            st.plotly_chart(fig_gauge, use_container_width=True)
+        
+        with col2:
+            # Current month statistics
+            st.subheader(f"📊 {current_month_stats['month_str']} Stats")
+            
+            subcol1, subcol2 = st.columns(2)
+            with subcol1:
+                st.metric("New Artists Discovered", f"{current_month_stats['new_artists']} 🎤")
+                st.metric("New Tracks Discovered", f"{current_month_stats['new_tracks']} 🎵")
+            with subcol2:
+                st.metric("Unique Artists Played", format_number(current_month_stats['unique_artists']))
+                st.metric("Obsessive Loops", f"{current_month_stats['obsessive_loops']} tracks")
+        
+        # 2. TIMELINE - Exploration vs Comfort
+        st.subheader("📈 Exploration vs Comfort Over Time")
+        
+        fig_timeline = go.Figure()
+        
+        # New discoveries line
+        fig_timeline.add_trace(go.Scatter(
+            x=df_monthly_stats['month_str'],
+            y=df_monthly_stats['new_artists'],
+            name='New Artists',
+            line=dict(color='green', width=3),
+            mode='lines+markers',
+            fill='tozeroy',
+            fillcolor='rgba(0, 255, 0, 0.1)'
+        ))
+        
+        # New tracks line
+        fig_timeline.add_trace(go.Scatter(
+            x=df_monthly_stats['month_str'],
+            y=df_monthly_stats['new_tracks'],
+            name='New Tracks',
+            line=dict(color='lightgreen', width=2, dash='dot'),
+            mode='lines+markers'
+        ))
+        
+        # Global score line
+        fig_timeline.add_trace(go.Scatter(
+            x=df_monthly_stats['month_str'],
+            y=df_monthly_stats['discovery_score'],
+            name='Discovery Score',
+            line=dict(color='blue', width=3),
+            mode='lines+markers',
+            yaxis='y2'
+        ))
+        
+        fig_timeline.update_layout(
+            xaxis_title="Month",
+            yaxis_title="New Discoveries",
+            yaxis2=dict(
+                title="Discovery Score",
+                overlaying='y',
+                side='right',
+                range=[0, 100]
+            ),
+            hovermode='x unified',
+            height=400
+        )
+        
+        st.plotly_chart(fig_timeline, use_container_width=True)
+        
+        
+        # 4. INSIGHTS AND ACHIEVEMENTS
+        st.subheader("🏆 Discovery Insights")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            # Best exploration month
+            best_month = df_monthly_stats.loc[df_monthly_stats['discovery_score'].idxmax()]
+            st.info(f"""
+            **Best Discovery Month**  
+            {best_month['month_str']}  
+            Score: {best_month['discovery_score']:.0f}/100  
+            {best_month['new_artists']} new artists discovered!
+            """)
+        
+        with col2:
+            # Biggest obsession
+            obsession_month = df_monthly_stats.loc[df_monthly_stats['max_repeat'].idxmax()]
+            most_played = df_discovery[df_discovery['month'] == obsession_month['month']]['master_metadata_track_name'].value_counts().iloc[0]
+            st.warning(f"""
+            **Biggest Obsession**  
+            {obsession_month['month_str']}  
+            One track played {obsession_month['max_repeat']} times!  
+            That's {obsession_month['max_repeat']/30:.1f} times per day!
+            """)
+        
+        with col3:
+            # Overall trend
+            recent_trend = df_monthly_stats.tail(3)['discovery_score'].mean() - df_monthly_stats.head(3)['discovery_score'].mean()
+            trend_emoji = "📈" if recent_trend > 0 else "📉"
+            st.success(f"""
+            **Overall Trend {trend_emoji}**  
+            {'+' if recent_trend > 0 else ''}{recent_trend:.1f} points  
+            You're {'expanding' if recent_trend > 0 else 'consolidating'} your musical horizons!
+            """)
+        
+    else:
+        st.warning("⚠️ Not enough data to calculate discovery score.")
