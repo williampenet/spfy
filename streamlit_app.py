@@ -22,12 +22,68 @@ except Exception as e:
     st.error(f"ERROR: Unable to connect to Supabase. Details: {str(e)}")
     st.stop()
 
+
 # --- Step 3: Define data loading function ---
-@st.cache_data
+@st.cache_data(ttl=3600)  # Cache pour 1 heure
 def load_spotify_data(_db_client: Client):
-    """Load data from 'tracks' table in Supabase."""
-    response = _db_client.table('tracks').select('*').execute()
-    return pd.DataFrame(response.data)
+    """Load all data from 'tracks' table using timestamp-based pagination."""
+    all_data = []
+    batch_size = 1000
+    last_timestamp = None
+    total_loaded = 0
+    
+    # Créer un placeholder pour la progression
+    progress_text = st.empty()
+    progress_bar = st.progress(0)
+    
+    try:
+        # D'abord, obtenir le nombre total de lignes
+        # On fait une requête avec limit 1 pour obtenir le count
+        count_response = _db_client.table('tracks').select('id', count='exact').limit(1).execute()
+        total_rows = count_response.count
+        
+        progress_text.text(f"Chargement de {total_rows:,} lignes...")
+        
+        while True:
+            # Construire la requête avec pagination par timestamp
+            query = _db_client.table('tracks').select('*').order('timestamp', desc=False).limit(batch_size)
+            
+            if last_timestamp:
+                query = query.gt('timestamp', last_timestamp)
+            
+            response = query.execute()
+            
+            if not response.data:
+                break
+            
+            all_data.extend(response.data)
+            total_loaded += len(response.data)
+            
+            # Mettre à jour le timestamp pour la prochaine page
+            last_timestamp = response.data[-1]['timestamp']
+            
+            # Mettre à jour la progression
+            progress = min(total_loaded / total_rows, 1.0) if total_rows else 0
+            progress_bar.progress(progress)
+            progress_text.text(f"Chargé {total_loaded:,} / {total_rows:,} lignes ({progress*100:.1f}%)")
+            
+            # Sortir si on a moins de lignes que demandé (fin des données)
+            if len(response.data) < batch_size:
+                break
+        
+        # Nettoyer l'affichage de progression
+        progress_text.empty()
+        progress_bar.empty()
+        
+        st.success(f"✅ {total_loaded:,} lignes chargées avec succès!")
+        
+    except Exception as e:
+        st.error(f"Erreur lors du chargement: {str(e)}")
+        progress_text.empty()
+        progress_bar.empty()
+        raise
+    
+    return pd.DataFrame(all_data)
 
 # --- Step 4: Build the application interface ---
 
