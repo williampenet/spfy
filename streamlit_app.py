@@ -127,9 +127,22 @@ else:
 
     # Define colors by year
     year_colors = {
-        2023: '#FF6B6B',  # Red/Pink
-        2024: '#4ECDC4',  # Turquoise
-        2025: '#45B7D1',  # Light blue
+        2011: '#fcefa1', # Soleil pâle
+        2012: '#fcd584', # Abricot doux
+        2013: '#fab07b', # Pêche dorée
+        2014: '#f98a7f', # Corail tendre
+        2015: '#f26489', # Rose melon
+        2016: '#de4f94', # Framboise vive
+        2017: '#c84a97', # Orchidée
+        2018: '#a649a3', # Mauve profond
+        2019: '#814ea7', # Violet prune
+        2020: '#6249a2', # Indigo pastel
+        2021: '#4c4798', # Bleu nuit doux
+        2022: '#474f9b', # Ardoise violette
+        2023: '#5669b3', # Lavande bleutée
+        2024: '#6c87c8', # Bleu pervenche
+        2025: '#85a7d8', # Azur givré
+
     }
 
     # --- Top 10 Artists ---
@@ -582,46 +595,7 @@ else:
             else:
                 st.metric("Recent Trend", "Not Enough Data", "—")
         
-        # Secondary chart: Valence distribution
-        st.subheader("Valence Distribution")
         
-        # Create histogram
-        fig_dist = px.histogram(
-            df_valence_valid, 
-            x='valence',
-            nbins=50,
-            title="Track Distribution by Valence",
-            labels={'valence': 'Valence', 'count': 'Number of Tracks'},
-            color_discrete_sequence=['rgb(68, 138, 255)']
-        )
-        
-        # Add colored zones for interpretation
-        fig_dist.add_vrect(x0=0, x1=0.3, fillcolor="red", opacity=0.1, 
-                           annotation_text="Melancholic", annotation_position="top")
-        fig_dist.add_vrect(x0=0.3, x1=0.7, fillcolor="yellow", opacity=0.1,
-                           annotation_text="Neutral", annotation_position="top")
-        fig_dist.add_vrect(x0=0.7, x1=1, fillcolor="green", opacity=0.1,
-                           annotation_text="Happy", annotation_position="top")
-        
-        fig_dist.update_layout(
-            xaxis=dict(range=[0, 1]),
-            showlegend=False,
-            height=400
-        )
-        
-        st.plotly_chart(fig_dist, use_container_width=True)
-        
-        # Explanation
-        with st.expander("ℹ️ What is Valence?"):
-            st.write("""
-            **Valence** is a Spotify measure from 0 to 1 describing the musical positivity of a track:
-            
-            - **0.0 - 0.3**: Sad, melancholic, depressed, or angry tracks
-            - **0.3 - 0.7**: Neutral or ambivalent tracks
-            - **0.7 - 1.0**: Happy, euphoric, cheerful tracks
-            
-            It's calculated by analyzing tempo, mode (major/minor), timbre, and other acoustic features.
-            """)
             
     else:
         st.warning("⚠️ Not enough data with valence to create this chart.")
